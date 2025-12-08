@@ -1,16 +1,14 @@
 // database.mjs
 import { Sequelize, DataTypes } from "sequelize";
-import  bcrypt from "bcrypt";
+import bcrypt from "bcrypt";
+import { defaultValueSchemable } from "sequelize/lib/utils";
 
 
 export async function loadSequelize() {
 
     try {
         // connection  a la bdd
-        const sequelize = new Sequelize("app-database", "root", "root", {
-            host: "127.0.0.1",
-            dialect: "mysql"
-        });
+        const sequelize = new Sequelize(process.env.DATABASE_URL);
         // authentification
         await sequelize.authenticate();
         console.log("Connexion à la base OK");
@@ -19,6 +17,10 @@ export async function loadSequelize() {
         const User = sequelize.define("User", {
             username: { type: DataTypes.STRING, allowNull: false },
             email: { type: DataTypes.STRING, allowNull: false },
+              role: {
+                type: DataTypes.STRING,
+                defaultValue: "User"
+            },
             password: {
                 type: DataTypes.STRING, allowNull: false,
 
@@ -27,6 +29,7 @@ export async function loadSequelize() {
                     this.setDataValue('password', hashedPassword);
                 }
             }
+           
         });
 
         const Post = sequelize.define("Post", {

@@ -7,7 +7,22 @@ import cookieParser from "cookie-parser";
 import dotenv from "dotenv";
 
 dotenv.config();
-const secretKeyJWT = "1234";
+const secretKeyJWT = process.env.JWT_SECRET;
+
+function authenticate(req, res, next) {
+
+    const token = req.cookies.jwt;
+    if (!token)
+        return res.status(401).json({ message: " non authentifié" });
+    try {
+        const decoded = jwt.verify(token, secretKeyJWT);
+        req.user = decoded;
+        next();
+    } catch (error) {
+        return res.status(401).json({ message: "Token non valide" })
+    }
+}
+
 
 async function main() {
     try {
@@ -27,7 +42,7 @@ async function main() {
         app.post("/register", async (req, res) => {
             try {
                 // Récupère username, email et password de la requête utilisateur
-                const { username, email, password } = req.body;
+                const { username, email, password, role } = req.body;
 
                 // Vérifie si l'utilisateur existe déjà
                 const existingUser = await User.findOne({ where: { email } });
@@ -35,14 +50,14 @@ async function main() {
                     return res.status(409).json({ message: "Email déjà utilisé" });
                 }
 
-                // Hash du mot de passe
-                // const hash = await bcrypt.hash(password, 10);
 
-                // Création du user
+
+                // Création du user/useradmin
                 const user = await User.create({
                     "username": req.body.username,
                     "email": req.body.email,
-                    "password": req.body.password
+                    "password": req.body.password,
+                    "role": req.body.role
                 });
 
                 // Génération du JWT
@@ -109,14 +124,15 @@ async function main() {
 
         //------création d'un post------------
 
-        app.post("/posts", async (req, res) => {
+        app.post("/posts", authenticate, async (req, res) => {
             try {
                 if (!req.body || !req.body.title || !req.body.content) {
                     res.status(404).json({ message: "Pour créer un post, un titre et un contenu est requis" });
                 }
                 await Post.create({
                     "title": req.body.title,
-                    "content": req.body.content
+                    "content": req.body.content,
+                    "userId" : req.user.id
                 });
                 res.status(201).json({ message: "Post crée avec succées" })
             } catch (error) {
@@ -159,31 +175,44 @@ async function main() {
         });
 
         // ---suppresion d'un post------
-        app.delete("/posts/:postId", async (req, res) => {
+        app.delete("/posts/:postId", authenticate, async (req, res) => {
             try {
-                const deleted = await Post.destroy({ where: { id: req.params.postId } });
-                if (deleted) {
-                    res.status(200).json({ message: "Post supprimé avec succées" })
-                } else {
-                    res.status(400).json({ message: "Erreur lors de la suppression du post" })
+                // je recupère le post à supprimer depuis les paramètres de la requête
+                const post = await Post.findByPk(req.params.postId);
+                if (!post) {
+                    return res.status(404).json({ message: "Post non trouvé" });
                 }
+                // si l'utilisateur n'est pas le créateur du post et n'est pas admin, on refuse l'accès
+                if (post.userId !== req.user.id && req.user.role !== "admin") {
+                    return res.status(404).json({ message: "Accès refusé" });
+                }
+                // suppression du post
+                await post.destroy();
+                res.status(200).json({ message: "Post supprimé avec succès" });
             } catch (error) {
                 console.error(error);
                 res.status(500).json({ message: "Erreur serveur" });
             }
-        })
+        });
 
 
         // ----suppression d'un commentaire
-        app.delete("/comments/:commentId", async (req, res) => {
+        app.delete("/comments/:commentId", authenticate, async (req, res) => {
 
             try {
-                //  on récupère l'id du commentaire à supprimer depuis les paramètres de la requête
-                const deleted = await Comment.destroy({ where: { id: req.params.commentId } });
-                if (deleted) {
-                    res.status(200).json({ message: "Commentaire supprimé avec succées" })
+
+                //  on récupère le commentaire à supprimer 
+
+                const comment = await Comment.findByPk({ where: { id: req.params.commentId } });
+                if (!comment) {
+                    return res.status().json({ message: "Commentaire non trouvée " })
                 } else {
-                    res.status(400).json({ massage: "Erreur lors de la suppression du commentaire" })
+                    //si le user n'est pas le crateur du comment et n'est pas le admin, erreur accées refusé
+                    if (comment.userId !== req.user.id && req.user.role !== "admin") {
+                        return res.status(404).json({ massage: "Accées non autorisé" })
+                    }
+                    await comment.destroy();
+                    res.status(200).json({ message: "commentaire supprimée avec succées" })
                 }
             } catch (error) {
                 console.error(error);
@@ -196,25 +225,21 @@ async function main() {
 
         app.get("/users/:userId/posts", async (req, res) => {
             try {
-                const posts = await Post.findAll( {where: { userId: req.params.userId}});
-                if(posts){
+                const posts = await Post.findAll({ where: { userId: req.params.userId } });
+                if (posts) {
                     res.status(200).json(posts)
                 } else {
-                    res.status(404).json( {message:"Erreur lors de la récuperation des posts"} )
+                    res.status(404).json({ message: "Erreur lors de la récuperation des posts" })
                 }
             } catch (error) {
-                
+
             }
-
         })
-
-
-
 
         // Start serveur
 
-        app.listen(3000, () => {
-            console.log("Serveur démarré sur http://localhost:3000");
+        app.listen(process.env.PORT || 3000, () => {
+            console.log(`Serveur démarré sur http://localhost:${process.env.PORT || 3000}`);
         });
 
     } catch (error) {
