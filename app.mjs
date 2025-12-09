@@ -127,16 +127,17 @@ async function main() {
         app.post("/posts", authenticate, async (req, res) => {
             try {
                 if (!req.body || !req.body.title || !req.body.content) {
-                    res.status(404).json({ message: "Pour créer un post, un titre et un contenu est requis" });
+                    return res.status(404).json({ message: "Pour créer un post, un titre et un contenu est requis" });
                 }
                 await Post.create({
                     "title": req.body.title,
                     "content": req.body.content,
-                    "userId" : req.user.id
+                    "userId" : req.user.id,
+                    "createdAt": new Date()
                 });
-                res.status(201).json({ message: "Post crée avec succées" })
+                return res.status(201).json({ message: "Post crée avec succées" });
             } catch (error) {
-                res.status(500).json({ message: "Erreur serveur" });
+                return res.status(500).json({ message: "Erreur serveur" });
             }
         });
 
@@ -146,17 +147,53 @@ async function main() {
         app.get("/posts", async (req, res) => {
             try {
                 const posts = await Post.findAll({
-                    include: [{ association: "Comments" }]
+                    include: [{ 
+                        association: "User",
+                        attributes: ["id", "username"]
+                    }, {
+                        association: "Comments",
+                        include: [{
+                            association: "User",
+                            attributes: ["id", "username"]
+                        }]
+                    }]
                 });
                 if (!posts) {
-                    res.status(404).json({ message: "Erreur lors de la récupération des Posts" });
+                    return res.status(404).json({ message: "Erreur lors de la récupération des Posts" });
                 }
                 if (posts.length <= 0) {
-                    res.status(404).json({ message: "Aucun Post" });
+                    return res.status(404).json({ message: "Aucun Post" });
                 }
-                res.status(200).json(posts);
+                return res.status(200).json(posts);
             } catch (error) {
-                res.status(500).json({ comment: "Erreur serveur" });
+                res.status(500).json({ message: "Erreur serveur" });
+            }
+        });
+
+        // ----Récupération d'un post par ID
+
+        app.get("/posts/:postId", async (req, res) => {
+            try {
+                const post = await Post.findByPk(req.params.postId, {
+                    include: [{
+                        association: "User",
+                        attributes: ["id", "username"]
+                    }, {
+                        association: "Comments",
+                        include: [{
+                            association: "User",
+                            attributes: ["id", "username"]
+                        }]
+                    }]
+                });
+                if (!post) {
+                    return res.status(404).json({ message: "Post non trouvé" });
+                }
+                res.status(200).json(post);
+            } catch (error) {
+                console.error(error);
+                res.status(500).json({ message: "Erreur serveur" });
+                return res.status(500).json({ comment: "Erreur serveur" });
             }
         });
 
@@ -164,6 +201,7 @@ async function main() {
         app.post("/posts/:postId/comments", async (req, res) => {
             const { postId } = req.params;
             const { content } = req.body;
+            const {createdAt} = req.body;
 
             try {
                 const comment = await Comment.create({ content, postId });
@@ -184,11 +222,33 @@ async function main() {
                 }
                 // si l'utilisateur n'est pas le créateur du post et n'est pas admin, on refuse l'accès
                 if (post.userId !== req.user.id && req.user.role !== "admin") {
-                    return res.status(404).json({ message: "Accès refusé" });
+                    return res.status(403).json({ message: "Accès refusé" });
                 }
                 // suppression du post
                 await post.destroy();
                 res.status(200).json({ message: "Post supprimé avec succès" });
+            } catch (error) {
+                console.error(error);
+                res.status(500).json({ message: "Erreur serveur" });
+            }
+        });
+
+        // ----Modification d'un post------
+        app.put("/posts/:postId", authenticate, async (req, res) => {
+            try {
+                const post = await Post.findByPk(req.params.postId);
+                if (!post) {
+                    return res.status(404).json({ message: "Post non trouvé" });
+                }
+                // Vérifier que l'utilisateur est le créateur ou admin
+                if (post.userId !== req.user.id && req.user.role !== "admin") {
+                    return res.status(403).json({ message: "Accès refusé" });
+                }
+                // Mettre à jour les champs
+                if (req.body.title) post.title = req.body.title;
+                if (req.body.content) post.content = req.body.content;
+                await post.save();
+                res.status(200).json({ message: "Post modifié avec succès", post });
             } catch (error) {
                 console.error(error);
                 res.status(500).json({ message: "Erreur serveur" });
